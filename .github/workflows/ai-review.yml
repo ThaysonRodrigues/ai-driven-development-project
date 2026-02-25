@@ -1,8 +1,20 @@
 name: AI Code Review
 
-on:
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+"on":
   pull_request:
     types: [opened, synchronize]
+    paths:
+      - "src/**"
+      - "backend/**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "!**/*.png"
+      - "!**/*.jpg"
+  workflow_dispatch:
 
 jobs:
   review:
@@ -10,6 +22,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # Necessário para comentar no PR
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -17,13 +30,29 @@ jobs:
           fetch-depth: 0
 
       - name: AI Reviewer
-        uses: anc95/ChatGPT-CodeReview@main # Action que orquestra a revisão
+        uses: anc95/ChatGPT-CodeReview@main
         env:
+          # GitHub
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.AI_API_KEY }} # Funciona com Gemini via proxy ou OpenAI nativo
+
+          # Provedor OpenAI-compatível (Gemini)
+          OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_ENDPOINT: https://generativelanguage.googleapis.com/v1beta/openai
+          MODEL: gemini-2.0-flash
           LANGUAGE: Portuguese
-          MODEL: gemini-2.0-flash # Ajuste para o modelo configurado
+
+          # ---- Tuning para evitar 429 / excesso de chamadas ----
+          CONCURRENCY: "1"           # Processa em série para reduzir burst
+          RETRY_TIMES: "5"           # Re-tenta em rate limit
+          RETRY_INTERVAL: "10"       # Intervalo entre tentativas (s)
+          MAX_DIFF_SIZE: "20000"     # Tamanho máximo do diff a processar
+          MAX_LINES_PER_FILE: "300"  # Ignora arquivos muito grandes
+
+          # ---- Escopo opcional de análise ----
+          INCLUDE_PATTERN: "src/**,backend/**"
+          EXCLUDE_PATTERN: "docs/**,**/*.md,**/*.png,**/*.jpg"
+
+          # ---- Seu prompt customizado ----
           PROMPT: |
             Aja como um Engenheiro de Segurança Sênior (DevSecOps). 
             Analise o DIFF deste Pull Request buscando:
